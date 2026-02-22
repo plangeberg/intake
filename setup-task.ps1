@@ -33,10 +33,10 @@ if ($sourcePath) {
             exit 1
         }
     }
-    $argString = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerScript`" -SourcePath `"$sourcePath`""
+    $argString = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runnerScript`" -SourcePath `"$sourcePath`""
     $sourceDisplay = $sourcePath
 } else {
-    $argString = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerScript`""
+    $argString = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$runnerScript`""
     $sourceDisplay = "$appDir\data\_intake (local only)"
 }
 
@@ -57,12 +57,19 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -StartWhenAvailable
 
-# Register the task (runs as current user)
+# Principal: run whether user is logged on or not (no window popup)
+$principal = New-ScheduledTaskPrincipal `
+    -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
+    -LogonType S4U `
+    -RunLevel Limited
+
+# Register the task
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
+    -Principal $principal `
     -Description "Extracts ideas from brainstorm files via AI and posts to GitLab Kanban board." `
     -Force
 
