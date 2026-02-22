@@ -57,21 +57,19 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -StartWhenAvailable
 
-# Principal: run whether user is logged on or not (no window popup)
-$principal = New-ScheduledTaskPrincipal `
-    -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
-    -LogonType S4U `
-    -RunLevel Limited
-
-# Register the task
+# Register the task (runs as current user)
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Principal $principal `
     -Description "Extracts ideas from brainstorm files via AI and posts to GitLab Kanban board." `
     -Force
+
+# Suppress the window popup: set "Run whether user is logged on or not"
+$task = Get-ScheduledTask -TaskName $taskName
+$task.Principal.LogonType = "S4U"
+Set-ScheduledTask -InputObject $task | Out-Null
 
 Write-Host ""
 Write-Host "Scheduled task '$taskName' created." -ForegroundColor Green
