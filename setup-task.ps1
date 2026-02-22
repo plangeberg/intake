@@ -6,7 +6,7 @@ $taskName = "Intake Pipeline"
 $runnerScript = Join-Path $appDir "run-intake.ps1"
 
 Write-Host ""
-Write-Host "Intake Pipeline — Scheduled Task Setup"
+Write-Host "Intake Pipeline -- Scheduled Task Setup"
 Write-Host "======================================="
 Write-Host ""
 Write-Host "Do you want intake to pull files from another folder (e.g. Google Drive)?"
@@ -14,7 +14,7 @@ Write-Host "If so, files will be moved from that folder into the local _intake f
 Write-Host ""
 Write-Host "  Example: G:\My Drive\_intake"
 Write-Host ""
-Write-Host "Leave blank to skip — intake will only process files dropped directly into:"
+Write-Host "Leave blank to skip -- intake will only process files dropped directly into:"
 Write-Host "  $appDir\data\_intake"
 Write-Host ""
 
@@ -29,7 +29,7 @@ if ($sourcePath) {
             New-Item -ItemType Directory -Force -Path $sourcePath | Out-Null
             Write-Host "Created: $sourcePath"
         } else {
-            Write-Host "Aborting — create the folder first, then re-run this script." -ForegroundColor Yellow
+            Write-Host "Aborting -- create the folder first, then re-run this script." -ForegroundColor Yellow
             exit 1
         }
     }
