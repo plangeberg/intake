@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from config import GITLAB_URL, GITLAB_PROJECT, log
+from config import GITLAB_URL, GITLAB_PROJECT, DISCORD_BACKLOG_WEBHOOK, log
 
 
 def load_pat_from_credentials(gitlab_url: str) -> str | None:
@@ -79,6 +79,48 @@ def fetch_existing_issues(pat: str) -> list[dict]:
     return all_issues
 
 
+def post_failure_notice(pat: str, filename: str, preview: str) -> bool:
+    """POST a failure notice issue to GitLab so parse failures are visible on the board."""
+    encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
+    url = f"{GITLAB_URL}/api/v4/projects/{encoded_project}/issues"
+    headers = {"PRIVATE-TOKEN": pat, "Content-Type": "application/json"}
+    payload = {
+        "title": f"Intake parse failure: {filename}",
+        "description": (
+            f"The intake pipeline could not extract any GITLAB ISSUE blocks from `{filename}`.\n\n"
+            f"**Response preview:**\n```\n{preview}\n```\n\n"
+            f"The file has been moved to `data/_failed/`. Review and re-process manually if needed."
+        ),
+        "labels": "Intake-Failed",
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=15)
+        if resp.status_code == 201:
+            issue_data = resp.json()
+            log(f"  Posted failure notice: GitLab issue #{issue_data.get('iid', '?')}")
+            return True
+        else:
+            log(f"  ERROR: Could not post failure notice (HTTP {resp.status_code})")
+            return False
+    except requests.RequestException as exc:
+        log(f"  ERROR: Could not post failure notice: {exc}")
+        return False
+
+
+def _notify_backlog(title: str, iid: int | str) -> None:
+    """Post a notification to Discord #backlog after a GitLab issue is created."""
+    if not DISCORD_BACKLOG_WEBHOOK:
+        return
+    payload = {"content": f"New issue created: **{title}** (#{iid})"}
+    try:
+        resp = requests.post(DISCORD_BACKLOG_WEBHOOK, json=payload, timeout=10)
+        if resp.status_code not in (200, 204):
+            log(f"  Warning: Backlog webhook returned {resp.status_code}")
+    except requests.RequestException as exc:
+        log(f"  Warning: Could not notify backlog: {exc}")
+
+
 def post_issue(pat: str, issue: dict, dry_run: bool) -> bool:
     """POST one issue to GitLab. Returns True on success (or dry_run)."""
     encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
@@ -98,7 +140,9 @@ def post_issue(pat: str, issue: dict, dry_run: bool) -> bool:
         resp = requests.post(url, headers=headers, json=payload, timeout=15)
         if resp.status_code == 201:
             issue_data = resp.json()
-            log(f"  Created GitLab issue #{issue_data.get('iid', '?')}: {issue['title']}")
+            iid = issue_data.get("iid", "?")
+            log(f"  Created GitLab issue #{iid}: {issue['title']}")
+            _notify_backlog(issue["title"], iid)
             return True
         else:
             log(f"  ERROR: GitLab returned HTTP {resp.status_code} for '{issue['title']}': {resp.text[:200]}")

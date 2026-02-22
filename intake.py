@@ -9,18 +9,19 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from config import INTAKE_DIR, PROCESSED_DIR, PROMPT_FILE, log
+from config import INTAKE_DIR, PROCESSED_DIR, FAILED_DIR, PROMPT_FILE, QUICK_PROMPT_FILE, log
 from ai_client import extract_ideas, filter_duplicates
-from gitlab_client import resolve_pat, fetch_existing_issues, post_issue
+from gitlab_client import resolve_pat, fetch_existing_issues, post_issue, post_failure_notice
+from discord_client import scrape_intake_channel
 from parser import parse_issues
 
 
-def _move_to_processed(filepath: Path) -> None:
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    dest = PROCESSED_DIR / filepath.name
+def _move_file(filepath: Path, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    dest = target_dir / filepath.name
     if dest.exists():
         ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        dest = PROCESSED_DIR / f"{filepath.stem}_{ts}{filepath.suffix}"
+        dest = target_dir / f"{filepath.stem}_{ts}{filepath.suffix}"
     filepath.rename(dest)
     log(f"  Moved to {dest}")
 
@@ -57,7 +58,12 @@ def process_file(
     issues = parse_issues(response_text)
     if not issues:
         log(f"  WARNING: No GITLAB ISSUE blocks found in response for {filepath.name}")
-        log(f"  Response preview: {response_text[:300]}")
+        preview = response_text[:200].replace('\n', ' ').strip()
+        log(f"  Response preview: {preview}...")
+        if not dry_run and pat and post_failure_notice(pat, filepath.name, preview):
+            _move_file(filepath, FAILED_DIR)
+        else:
+            log(f"  Could not post failure notice — leaving {filepath.name} in _intake for retry.")
         return
 
     log(f"  Found {len(issues)} issue(s).")
@@ -67,7 +73,7 @@ def process_file(
         issues = filter_duplicates(issues, existing_issues)
         if not issues:
             log(f"  All issues were duplicates — nothing to post.")
-            _move_to_processed(filepath)
+            _move_file(filepath, PROCESSED_DIR)
             return
         log(f"  {len(issues)} issue(s) after dedup.")
 
@@ -79,7 +85,7 @@ def process_file(
             all_success = False
 
     if all_success:
-        _move_to_processed(filepath)
+        _move_file(filepath, PROCESSED_DIR)
     else:
         log(f"  One or more GitLab POSTs failed — leaving {filepath.name} in _intake for retry.")
 
@@ -99,12 +105,17 @@ def main() -> None:
         log("Create the folder (or set up a junction) and add files to process.")
         sys.exit(1)
 
-    # Load prompt
+    # Load prompts
     if not PROMPT_FILE.exists():
         log(f"ERROR: Prompt file not found: {PROMPT_FILE}")
         sys.exit(1)
     prompt_text = PROMPT_FILE.read_text(encoding="utf-8")
-    log(f"Loaded prompt from {PROMPT_FILE} ({len(prompt_text)} chars)")
+    log(f"Loaded extraction prompt ({len(prompt_text)} chars)")
+
+    quick_prompt_text = ""
+    if QUICK_PROMPT_FILE.exists():
+        quick_prompt_text = QUICK_PROMPT_FILE.read_text(encoding="utf-8")
+        log(f"Loaded quick-idea prompt ({len(quick_prompt_text)} chars)")
 
     # Resolve GitLab PAT
     pat = ""
@@ -114,6 +125,11 @@ def main() -> None:
         except RuntimeError as exc:
             log(f"ERROR: {exc}")
             sys.exit(1)
+
+    # Scrape Discord #intake channel (if configured)
+    scraped = scrape_intake_channel()
+    if scraped:
+        log(f"Scraped {scraped} message(s) from Discord #intake.")
 
     # Collect files
     files = sorted(
@@ -137,7 +153,9 @@ def main() -> None:
 
     for filepath in files:
         try:
-            process_file(filepath, prompt_text, pat, args.dry_run, existing_issues)
+            is_discord = filepath.name.startswith("discord-")
+            prompt = quick_prompt_text if (is_discord and quick_prompt_text) else prompt_text
+            process_file(filepath, prompt, pat, args.dry_run, existing_issues)
         except Exception as exc:
             log(f"UNEXPECTED ERROR processing {filepath.name}: {exc}")
 
