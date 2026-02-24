@@ -79,6 +79,58 @@ def fetch_existing_issues(pat: str) -> list[dict]:
     return all_issues
 
 
+def fetch_issues_by_label(pat: str, label: str) -> list[dict]:
+    """Fetch all open issues with a specific label."""
+    encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
+    url = f"{GITLAB_URL}/api/v4/projects/{encoded_project}/issues"
+    headers = {"PRIVATE-TOKEN": pat}
+    all_issues = []
+    page = 1
+
+    while True:
+        params = {"state": "opened", "labels": label, "per_page": 100, "page": page}
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=15)
+            if resp.status_code != 200:
+                log(f"  Warning: GitLab returned {resp.status_code} fetching {label} issues page {page}")
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            for issue in batch:
+                all_issues.append({
+                    "iid": issue.get("iid"),
+                    "title": issue.get("title", ""),
+                    "description": issue.get("description", ""),
+                    "labels": issue.get("labels", []),
+                })
+            page += 1
+        except requests.RequestException as exc:
+            log(f"  Warning: could not fetch {label} issues page {page}: {exc}")
+            break
+
+    return all_issues
+
+
+def update_issue(pat: str, iid: int | str, data: dict) -> bool:
+    """Update an existing GitLab issue (description, labels, etc.)."""
+    encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
+    url = f"{GITLAB_URL}/api/v4/projects/{encoded_project}/issues/{iid}"
+    headers = {"PRIVATE-TOKEN": pat, "Content-Type": "application/json"}
+
+    try:
+        resp = requests.put(url, headers=headers, json=data, timeout=15)
+        if resp.status_code == 200:
+            log(f"  Updated GitLab issue #{iid}")
+            return True
+        else:
+            log(f"  ERROR: Could not update issue #{iid} (HTTP {resp.status_code}): {resp.text[:200]}")
+            return False
+    except requests.RequestException as exc:
+        log(f"  ERROR: Could not update issue #{iid}: {exc}")
+        return False
+
+
 def post_failure_notice(pat: str, filename: str, preview: str) -> bool:
     """POST a failure notice issue to GitLab so parse failures are visible on the board."""
     encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
@@ -108,11 +160,11 @@ def post_failure_notice(pat: str, filename: str, preview: str) -> bool:
         return False
 
 
-def _notify_backlog(title: str, iid: int | str) -> None:
+def _notify_backlog(title: str, iid: int | str, prefix: str = "") -> None:
     """Post a notification to Discord #backlog after a GitLab issue is created."""
     if not DISCORD_BACKLOG_WEBHOOK:
         return
-    payload = {"content": f"New issue created: **{title}** (#{iid})"}
+    payload = {"content": f"{prefix}New issue created: **{title}** (#{iid})"}
     try:
         resp = requests.post(DISCORD_BACKLOG_WEBHOOK, json=payload, timeout=10)
         if resp.status_code not in (200, 204):
@@ -121,7 +173,7 @@ def _notify_backlog(title: str, iid: int | str) -> None:
         log(f"  Warning: Could not notify backlog: {exc}")
 
 
-def post_issue(pat: str, issue: dict, dry_run: bool) -> bool:
+def post_issue(pat: str, issue: dict, dry_run: bool, prefix: str = "") -> bool:
     """POST one issue to GitLab. Returns True on success (or dry_run)."""
     encoded_project = urllib.parse.quote(GITLAB_PROJECT, safe="")
     url = f"{GITLAB_URL}/api/v4/projects/{encoded_project}/issues"
@@ -142,7 +194,7 @@ def post_issue(pat: str, issue: dict, dry_run: bool) -> bool:
             issue_data = resp.json()
             iid = issue_data.get("iid", "?")
             log(f"  Created GitLab issue #{iid}: {issue['title']}")
-            _notify_backlog(issue["title"], iid)
+            _notify_backlog(issue["title"], iid, prefix=prefix)
             return True
         else:
             log(f"  ERROR: GitLab returned HTTP {resp.status_code} for '{issue['title']}': {resp.text[:200]}")

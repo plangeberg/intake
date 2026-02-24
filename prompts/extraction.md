@@ -72,6 +72,7 @@ Ignore completely:
 - Conversational noise (stutters, corrections, "um", "like", etc.)
 - Meta-discussion about the conversation itself
 - Troubleshooting tangents (e.g., debugging a tool mid-conversation) unless they produce a distinct idea
+- **Ideas that were discussed and then dismissed, resolved as unnecessary, or superseded by a different approach.** Only extract ideas the speaker intends to act on. If an idea was raised, debated, and abandoned — skip it. If there is a summary or conclusion section at the end, use it to determine which ideas survived.
 
 ### Output Part 2: GitLab Issues (ready to post)
 
@@ -97,6 +98,16 @@ For each idea, also produce a GitLab-ready issue block in this exact format:
 - **Ready** — Spec'd and ready to pull into a build session. (Rare from a brain dump — only if very detailed)
 
 Most ideas from a brain dump will be **Spark**. Only upgrade if the conversation genuinely fleshed it out.
+
+- If the input is a request to build or create a prompt (e.g., "I need a prompt for X",
+  "build me a prompt", "create a prompt that does Y"), add `Prompt-Request` as an
+  additional label: **Label:** Spark, Prompt-Request
+
+### CRITICAL FORMAT RULES
+- You MUST use `### GITLAB ISSUE: [number]` format for every idea
+- Do NOT use tables, numbered lists, or any other format
+- Each issue MUST have **Title:**, **Label:**, and **Description:** fields
+- Follow the exact template shown above — no deviations
 
 ---
 

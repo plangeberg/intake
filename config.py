@@ -39,7 +39,7 @@ def _require(name: str) -> str:
 ANTHROPIC_API_KEY = _require("INTAKE_ANTHROPIC_API_KEY")
 
 # Optional with defaults
-MODEL = os.environ.get("INTAKE_MODEL", "claude-haiku-4-5-20251001")
+MODEL = os.environ.get("INTAKE_MODEL", "claude-sonnet-4-6")
 GITLAB_URL = os.environ.get("INTAKE_GITLAB_URL", "https://gitlab.czechito.com").rstrip("/")
 GITLAB_PROJECT = os.environ.get("INTAKE_GITLAB_PROJECT", "tcdz/workbench")
 
@@ -55,3 +55,22 @@ QUICK_PROMPT_FILE = Path(os.environ.get("INTAKE_QUICK_PROMPT_FILE", str(APP_DIR 
 DISCORD_BOT_TOKEN = os.environ.get("INTAKE_DISCORD_BOT_TOKEN", "")
 DISCORD_CHANNEL_ID = os.environ.get("INTAKE_DISCORD_CHANNEL_ID", "")
 DISCORD_BACKLOG_WEBHOOK = os.environ.get("INTAKE_DISCORD_BACKLOG_WEBHOOK", "")
+
+# Delivery — Discord webhook + Dropzone SCP
+COS_DISCORD_WEBHOOK = os.environ.get(
+    "INTAKE_COS_DISCORD_WEBHOOK",
+    "https://discord.com/api/webhooks/1474639674478952739/5apeBluL80iW956ckoKCZWA7fw059Cn3LWPcaWqZijwS7qBE9SpnX7LWOI8Cn9V0PzuA",
+)
+DROPZONE_SCP_TARGET = os.environ.get(
+    "INTAKE_DROPZONE_SCP_TARGET",
+    "ccagent@192.168.1.13:/volume1/public/dropzone/",
+)
+DROPZONE_SSH_KEY = os.environ.get("INTAKE_DROPZONE_SSH_KEY", str(Path.home() / ".ssh" / "cc-to-ds923"))
+
+# Prompt files — Phase 2
+ENRICHMENT_PROMPT_FILE = Path(os.environ.get(
+    "INTAKE_ENRICHMENT_PROMPT_FILE", str(APP_DIR / "prompts" / "enrichment.md")
+))
+PROMPT_BUILDER_FILE = Path(os.environ.get(
+    "INTAKE_PROMPT_BUILDER_FILE", str(APP_DIR / "prompts" / "prompt-builder.md")
+))

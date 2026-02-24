@@ -13,7 +13,7 @@ from config import INTAKE_DIR, PROCESSED_DIR, FAILED_DIR, PROMPT_FILE, QUICK_PRO
 from ai_client import extract_ideas, filter_duplicates
 from gitlab_client import resolve_pat, fetch_existing_issues, post_issue, post_failure_notice
 from discord_client import scrape_intake_channel
-from parser import parse_issues
+from parser import parse_issues, is_prompt_request
 
 
 def _move_file(filepath: Path, target_dir: Path) -> None:
@@ -80,8 +80,9 @@ def process_file(
     # Post to GitLab
     all_success = True
     for i, issue in enumerate(issues, start=1):
+        prefix = "Prompt: " if is_prompt_request(issue) else ""
         log(f"  Posting {i}/{len(issues)}: {issue['title']}")
-        if not post_issue(pat, issue, dry_run):
+        if not post_issue(pat, issue, dry_run, prefix=prefix):
             all_success = False
 
     if all_success:
@@ -96,6 +97,11 @@ def main() -> None:
         "--dry-run",
         action="store_true",
         help="Extract and parse but don't POST to GitLab.",
+    )
+    parser.add_argument(
+        "--skip-backlog",
+        action="store_true",
+        help="Skip Phase 2 backlog processing (Spark → Shaped enrichment).",
     )
     args = parser.parse_args()
 
@@ -139,25 +145,29 @@ def main() -> None:
 
     if not files:
         log(f"No .txt or .md files found in {INTAKE_DIR}. Nothing to do.")
-        return
+    else:
+        log(f"Found {len(files)} file(s) to process in {INTAKE_DIR}")
+        if args.dry_run:
+            log("DRY RUN mode — GitLab POSTs will be skipped.")
 
-    log(f"Found {len(files)} file(s) to process in {INTAKE_DIR}")
-    if args.dry_run:
-        log("DRY RUN mode — GitLab POSTs will be skipped.")
+        # Fetch existing issues once for dedup
+        existing_issues = []
+        if not args.dry_run:
+            existing_issues = fetch_existing_issues(pat)
+            log(f"Loaded {len(existing_issues)} existing open issue(s) for dedup.")
 
-    # Fetch existing issues once for dedup
-    existing_issues = []
-    if not args.dry_run:
-        existing_issues = fetch_existing_issues(pat)
-        log(f"Loaded {len(existing_issues)} existing open issue(s) for dedup.")
+        for filepath in files:
+            try:
+                is_discord = filepath.name.startswith("discord-")
+                prompt = quick_prompt_text if (is_discord and quick_prompt_text) else prompt_text
+                process_file(filepath, prompt, pat, args.dry_run, existing_issues)
+            except Exception as exc:
+                log(f"UNEXPECTED ERROR processing {filepath.name}: {exc}")
 
-    for filepath in files:
-        try:
-            is_discord = filepath.name.startswith("discord-")
-            prompt = quick_prompt_text if (is_discord and quick_prompt_text) else prompt_text
-            process_file(filepath, prompt, pat, args.dry_run, existing_issues)
-        except Exception as exc:
-            log(f"UNEXPECTED ERROR processing {filepath.name}: {exc}")
+    # Phase 2: Backlog processing
+    if not args.dry_run and not args.skip_backlog and pat:
+        from backlog_processor import run_backlog_processor
+        run_backlog_processor(pat)
 
     log("Done.")
 

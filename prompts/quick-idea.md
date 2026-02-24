@@ -38,7 +38,9 @@ Output **exactly one** issue block in this format:
 ]
 ```
 
-Always use the **Spark** label. Do NOT include analysis, overview, or any other sections — just the one issue block.
+Always use the **Spark** label — unless the input is a request to build or create a prompt (e.g., "I need a prompt for X", "build me a prompt"), in which case use: **Label:** Spark, Prompt-Request
+
+Do NOT include analysis, overview, or any other sections — just the one issue block.
 
 ---
 QUICK IDEA:

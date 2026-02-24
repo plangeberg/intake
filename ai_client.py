@@ -1,24 +1,60 @@
-"""Anthropic API wrapper for idea extraction and dedup."""
+"""Anthropic API wrapper for idea extraction, dedup, enrichment, and prompt building."""
 
 import re
+import time
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIStatusError
 
 from config import ANTHROPIC_API_KEY, MODEL, log
 
+RETRY_DELAYS = [5, 15, 30]  # seconds — exponential backoff for transient errors
+RETRYABLE_STATUS_CODES = {429, 529}
 
-def call_anthropic(user_content: str, max_tokens: int = 4096) -> str:
-    client = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=120.0)
-    message = client.messages.create(
-        model=MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    return message.content[0].text
+
+def call_anthropic(user_content: str, max_tokens: int = 4096, model: str | None = None,
+                   timeout: float = 120.0) -> str:
+    client = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=timeout)
+    last_exc = None
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            message = client.messages.create(
+                model=model or MODEL,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            return message.content[0].text
+        except APIStatusError as exc:
+            if exc.status_code not in RETRYABLE_STATUS_CODES or attempt >= len(RETRY_DELAYS):
+                raise
+            last_exc = exc
+            delay = RETRY_DELAYS[attempt]
+            log(f"  API returned {exc.status_code} — retrying in {delay}s (attempt {attempt + 1}/{len(RETRY_DELAYS)})...")
+            time.sleep(delay)
+        except (ConnectionError, TimeoutError) as exc:
+            if attempt >= len(RETRY_DELAYS):
+                raise
+            last_exc = exc
+            delay = RETRY_DELAYS[attempt]
+            log(f"  Connection error — retrying in {delay}s (attempt {attempt + 1}/{len(RETRY_DELAYS)})...")
+            time.sleep(delay)
+    raise last_exc  # unreachable, but satisfies type checker
 
 
 def extract_ideas(prompt_text: str, file_contents: str) -> str:
-    return call_anthropic(prompt_text + "\n\n" + file_contents)
+    """Extract ideas from file contents. Single call — Sonnet handles large files natively."""
+    return call_anthropic(prompt_text + "\n\n" + file_contents, max_tokens=8192)
+
+
+def enrich_issue(prompt_text: str, title: str, description: str) -> str:
+    """Call Sonnet to enrich a Spark issue into Shaped."""
+    content = f"{prompt_text}\n\n**Title:** {title}\n\n**Current Description:**\n{description}"
+    return call_anthropic(content, max_tokens=4096, timeout=120.0)
+
+
+def build_prompt(prompt_text: str, title: str, description: str) -> str:
+    """Call Sonnet to build a finished prompt from an enriched issue."""
+    content = f"{prompt_text}\n\n**Title:** {title}\n\n**Description:**\n{description}"
+    return call_anthropic(content, max_tokens=8192, timeout=180.0)
 
 
 DEDUP_PROMPT = """\

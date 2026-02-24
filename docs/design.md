@@ -1,7 +1,7 @@
 # Intake Pipeline — Idea Capture System
 
-> **Status**: MVP ready to build. Full vision documented below.
-> **Date**: 2026-02-21
+> **Status**: Phase 2 implemented. Sonnet extraction + chunking, backlog enrichment, prompt delivery.
+> **Date**: 2026-02-24 (Phase 2) | 2026-02-21 (MVP)
 > **Goal**: Capture brainstorming output and turn it into actionable GitLab issues automatically
 > **Prompt v1**: `brain/handoffs/to-cos/prompt.md`
 > **Prompt v2**: `brain/handoffs/to-cos/prompt-v2.md`
@@ -199,6 +199,39 @@ tcdz/workbench Kanban board (one issue per idea, default label)
 3. **Label matcher** — Checks extracted ideas against existing Workbench labels, assigns match or default (could be part of the prompt or a separate step)
 4. **Scheduler** — Windows Task Scheduler or cron on DS923+ to run pipeline periodically
 5. **(Optional) Discord notifier** — Posts summary to Discord after new ideas are created ("3 new ideas added to Kanban")
+
+## Phase 2 — Backlog Processing & Prompt Delivery (2026-02-24)
+
+### Problem
+1. Haiku failed on large (22KB+) transcripts — output format compliance broke (tables instead of GITLAB ISSUE blocks)
+2. Prompt requests need fast-tracking — when Phil asks Grok to build a prompt, the finished prompt should be delivered immediately
+3. Backlog items sit as raw Spark issues with no enrichment
+
+### Solution
+
+**Phase A — Robustness**: Switched default model from Haiku to Sonnet. Added chunking for files >10K chars (8K segments with 500-char overlap). Added format enforcement rules to extraction prompt. Bumped max_tokens to 8192.
+
+**Phase B — Prompt Detection**: AI labels prompt requests with `Prompt-Request` alongside `Spark`. Discord backlog notifications include "Prompt:" prefix for these.
+
+**Phase C — Delivery Module** (`delivery.py`): Shared module for Discord webhook posts to #chief-of-staff and SCP delivery to Dropzone. Generates styled HTML pages with copy buttons.
+
+**Phase D — Backlog Processor** (`backlog_processor.py`): Runs after Phase 1. Fetches `Spark` issues, enriches with Sonnet (acceptance criteria, design notes, open questions), relabels to `Shaped`. For `Prompt-Request` issues, calls Opus to build the actual prompt and delivers via Discord + Dropzone.
+
+### Label Flow
+```
+File drops → Sonnet extracts → Spark (+ Prompt-Request if detected) → GitLab
+                                                                        ↓
+Phase 2 picks up Spark issues → Sonnet enriches → Shaped
+                                                    ↓ (if Prompt-Request)
+                                              Opus builds prompt → Discord + Dropzone
+```
+
+### Cost Model (Phase 2)
+- Phase 1 extraction (Sonnet): ~$0.12/file (up from $0.03 with Haiku)
+- Phase 2 enrichment (Sonnet): ~$0.10-0.30 per issue (~$2-6/month at 5-10 issues/week)
+- Prompt building (Opus): ~$0.15-0.50 per prompt (infrequent)
+
+---
 
 ## Not In Scope
 

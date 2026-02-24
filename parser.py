@@ -19,3 +19,8 @@ def parse_issues(response_text: str) -> list[dict]:
         description = m.group("description").strip()
         issues.append({"title": title, "label": label, "description": description})
     return issues
+
+
+def is_prompt_request(issue: dict) -> bool:
+    """Check if an issue has the Prompt-Request label."""
+    return "prompt-request" in issue.get("label", "").lower()
