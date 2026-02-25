@@ -3,7 +3,7 @@
 import re
 import time
 
-from anthropic import Anthropic, APIStatusError
+from anthropic import Anthropic, APIConnectionError, APIStatusError
 
 from config import ANTHROPIC_API_KEY, MODEL, log
 
@@ -12,17 +12,32 @@ RETRYABLE_STATUS_CODES = {429, 529}
 
 
 def call_anthropic(user_content: str, max_tokens: int = 4096, model: str | None = None,
-                   timeout: float = 120.0) -> str:
+                   timeout: float = 120.0, stream: bool | None = None) -> str:
+    """Call Anthropic API. Auto-streams for large max_tokens to avoid WSL2 TCP drops."""
+    use_stream = stream if stream is not None else (max_tokens > 2048)
     client = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=timeout)
     last_exc = None
     for attempt in range(len(RETRY_DELAYS) + 1):
         try:
-            message = client.messages.create(
-                model=model or MODEL,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": user_content}],
-            )
-            return message.content[0].text
+            if use_stream:
+                # Streaming keeps the TCP connection alive — prevents WSL2
+                # network bridge from dropping idle long-running requests.
+                chunks: list[str] = []
+                with client.messages.stream(
+                    model=model or MODEL,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": user_content}],
+                ) as stream_resp:
+                    for text in stream_resp.text_stream:
+                        chunks.append(text)
+                return "".join(chunks)
+            else:
+                message = client.messages.create(
+                    model=model or MODEL,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": user_content}],
+                )
+                return message.content[0].text
         except APIStatusError as exc:
             if exc.status_code not in RETRYABLE_STATUS_CODES or attempt >= len(RETRY_DELAYS):
                 raise
@@ -30,12 +45,12 @@ def call_anthropic(user_content: str, max_tokens: int = 4096, model: str | None 
             delay = RETRY_DELAYS[attempt]
             log(f"  API returned {exc.status_code} — retrying in {delay}s (attempt {attempt + 1}/{len(RETRY_DELAYS)})...")
             time.sleep(delay)
-        except (ConnectionError, TimeoutError) as exc:
+        except (APIConnectionError, ConnectionError, TimeoutError) as exc:
             if attempt >= len(RETRY_DELAYS):
                 raise
             last_exc = exc
             delay = RETRY_DELAYS[attempt]
-            log(f"  Connection error — retrying in {delay}s (attempt {attempt + 1}/{len(RETRY_DELAYS)})...")
+            log(f"  Connection error ({type(exc).__name__}) — retrying in {delay}s (attempt {attempt + 1}/{len(RETRY_DELAYS)})...")
             time.sleep(delay)
     raise last_exc  # unreachable, but satisfies type checker
 
