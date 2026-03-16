@@ -4,20 +4,23 @@ import os
 import sys
 from pathlib import Path
 
-# Load .env file if python-dotenv is available, otherwise parse manually
+# Resolve .env file: INTAKE_ENV_FILE env var → APP_DIR/.env fallback
+APP_DIR = Path(__file__).parent
+_env_file = Path(os.environ.get("INTAKE_ENV_FILE", str(APP_DIR / ".env")))
+
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
+    load_dotenv(_env_file)
 except ImportError:
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
+    if _env_file.exists():
+        for line in _env_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip())
 
-APP_DIR = Path(__file__).parent
+# Data root: INTAKE_DATA_ROOT env var → APP_DIR/data fallback
+DATA_ROOT = Path(os.environ.get("INTAKE_DATA_ROOT", str(APP_DIR / "data")))
 
 
 def log(msg: str) -> None:
@@ -43,11 +46,11 @@ MODEL = os.environ.get("INTAKE_MODEL", "claude-sonnet-4-6")
 GITLAB_URL = os.environ.get("INTAKE_GITLAB_URL", "https://gitlab.czechito.com").rstrip("/")
 GITLAB_PROJECT = os.environ.get("INTAKE_GITLAB_PROJECT", "tcdz/workbench")
 
-# Paths — all default relative to APP_DIR
-INTAKE_DIR = Path(os.environ.get("INTAKE_FOLDER", str(APP_DIR / "data" / "_intake")))
-PROCESSED_DIR = Path(os.environ.get("INTAKE_PROCESSED_FOLDER", str(APP_DIR / "data" / "_processed")))
-LOG_DIR = Path(os.environ.get("INTAKE_LOG_DIR", str(APP_DIR / "data" / "_logs")))
-FAILED_DIR = Path(os.environ.get("INTAKE_FAILED_FOLDER", str(APP_DIR / "data" / "_failed")))
+# Paths — all default relative to DATA_ROOT (set above from INTAKE_DATA_ROOT or APP_DIR/data)
+INTAKE_DIR = Path(os.environ.get("INTAKE_FOLDER", str(DATA_ROOT / "_intake")))
+PROCESSED_DIR = Path(os.environ.get("INTAKE_PROCESSED_FOLDER", str(DATA_ROOT / "_processed")))
+LOG_DIR = Path(os.environ.get("INTAKE_LOG_DIR", str(DATA_ROOT / "_logs")))
+FAILED_DIR = Path(os.environ.get("INTAKE_FAILED_FOLDER", str(DATA_ROOT / "_failed")))
 PROMPT_FILE = Path(os.environ.get("INTAKE_PROMPT_FILE", str(APP_DIR / "prompts" / "extraction.md")))
 QUICK_PROMPT_FILE = Path(os.environ.get("INTAKE_QUICK_PROMPT_FILE", str(APP_DIR / "prompts" / "quick-idea.md")))
 

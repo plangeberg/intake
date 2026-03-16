@@ -29,6 +29,22 @@ Phase 2 picks up Spark issues → Sonnet enriches → Shaped
                                               Opus builds prompt → Discord + Dropzone
 ```
 
+## Layout
+
+Source code and runtime data are separated:
+
+| What | Where | Synced? |
+|------|-------|---------|
+| Source code | `D:\SynologyDrive\czechito\intake\` (git repo) | Yes (Synology Drive + git) |
+| Runtime data + .env | `D:\AppData\intake\` | No (local only) |
+
+The app finds its data via two env vars (set by `run-intake.ps1` in production):
+
+| Env Var | Points to | Fallback (dev) |
+|---------|-----------|----------------|
+| `INTAKE_DATA_ROOT` | `D:\AppData\intake\data` | `<repo>/data` |
+| `INTAKE_ENV_FILE` | `D:\AppData\intake\.env` | `<repo>/.env` |
+
 ## Setup
 
 ```bash
@@ -39,15 +55,19 @@ cd intake
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure
+# --- Production (AppData) ---
+# Create AppData directory structure (PowerShell or Windows Explorer):
+#   mkdir D:\AppData\intake\data\_intake
+#   mkdir D:\AppData\intake\data\_processed
+#   mkdir D:\AppData\intake\data\_failed
+#   mkdir D:\AppData\intake\data\_logs
+# Copy .env.example to D:\AppData\intake\.env and fill it in.
+# The scheduled task runs run-intake.ps1, which sets the env vars automatically.
+
+# --- Dev (local, no env vars needed) ---
 cp .env.example .env
 # Edit .env — add your Anthropic API key
-
-# Create data directories
-mkdir -p data/_intake data/_processed data/_logs
-
-# Optional: Set up Google Drive junction (Windows, one-time)
-# mklink /J "E:\intake\data\_intake" "G:\My Drive\_intake"
+mkdir -p data/_intake data/_processed data/_logs data/_failed
 ```
 
 ## Usage
@@ -69,8 +89,10 @@ All config via environment variables or `.env` file:
 
 | Variable | Required | Default |
 |----------|----------|---------|
+| `INTAKE_ENV_FILE` | No | `<repo>/.env` — set in `run-intake.ps1` for production |
+| `INTAKE_DATA_ROOT` | No | `<repo>/data` — set in `run-intake.ps1` for production |
 | `INTAKE_ANTHROPIC_API_KEY` | Yes | — |
-| `INTAKE_MODEL` | No | `claude-sonnet-4-5-20250514` |
+| `INTAKE_MODEL` | No | `claude-sonnet-4-6` |
 | `INTAKE_GITLAB_URL` | No | `https://gitlab.czechito.com` |
 | `INTAKE_GITLAB_PROJECT` | No | `tcdz/workbench` |
 | `INTAKE_GITLAB_PAT` | No | Reads from `~/.git-credentials` |

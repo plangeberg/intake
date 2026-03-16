@@ -1,47 +1,30 @@
 # Intake Pipeline runner — called by Windows Task Scheduler or manually
 #
+# Runtime data lives in D:\AppData\intake (outside Synology Drive / git).
+# Source code lives in this repo (D:\SynologyDrive\czechito\intake).
+#
 # Usage:
-#   .\run-intake.ps1 -SourcePath "G:\My Drive\_intake"  # moves from Google Drive, then processes
-#   .\run-intake.ps1                                     # no source — just processes local _intake
+#   .\run-intake.ps1          # normal scheduled or manual run
 
-param(
-    [string]$SourcePath
-)
+$codeDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-$appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$localIntake = Join-Path $appDir "data\_intake"
-$logFile = Join-Path $appDir "data\_logs\scheduled-run.log"
+# AppData paths (Windows)
+$dataRoot = "D:\AppData\intake\data"
+$envFile  = "D:\AppData\intake\.env"
+$logFile  = Join-Path $dataRoot "_logs\scheduled-run.log"
 
-# Ensure directories exist
-New-Item -ItemType Directory -Force -Path (Join-Path $appDir "data\_intake") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $appDir "data\_logs") | Out-Null
+# WSL equivalents
+$wslCodeDir  = "/mnt/d/SynologyDrive/czechito/intake"
+$wslDataRoot = "/mnt/d/AppData/intake/data"
+$wslEnvFile  = "/mnt/d/AppData/intake/.env"
+$wslLog      = "$wslDataRoot/_logs/scheduled-run.log"
 
-# Step 1: Move files from source to local intake (only if a source was specified)
-if ($SourcePath) {
-    $resolvedSource = (Resolve-Path $SourcePath -ErrorAction SilentlyContinue).Path
-    $resolvedLocal = (Resolve-Path $localIntake -ErrorAction SilentlyContinue).Path
+# Ensure AppData directories exist
+New-Item -ItemType Directory -Force -Path "$dataRoot\_intake" | Out-Null
+New-Item -ItemType Directory -Force -Path "$dataRoot\_processed" | Out-Null
+New-Item -ItemType Directory -Force -Path "$dataRoot\_failed" | Out-Null
+New-Item -ItemType Directory -Force -Path "$dataRoot\_logs" | Out-Null
 
-    if (-not $resolvedSource) {
-        Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Source folder not found: $SourcePath (skipping move)"
-    } elseif ($resolvedSource -ne $resolvedLocal) {
-        $files = Get-ChildItem -Path "$SourcePath\*" -File -Include "*.txt","*.md" -ErrorAction SilentlyContinue
-        foreach ($f in $files) {
-            $dest = Join-Path $localIntake $f.Name
-            try {
-                Move-Item -Path $f.FullName -Destination $dest -Force
-                Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Moved from source: $($f.Name)"
-            } catch {
-                Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ERROR moving $($f.Name): $_"
-            }
-        }
-    }
-}
-
-# Step 2: Run intake processor via WSL
-# Convert Windows app path to WSL path (E:\intake → /mnt/e/intake)
-$driveLetter = $appDir.Substring(0,1).ToLower()
-$remainder = $appDir.Substring(2) -replace '\\','/'
-$wslAppDir = "/mnt/$driveLetter$remainder"
-$wslLog = "$wslAppDir/data/_logs/scheduled-run.log"
-$wslCmd = "cd $wslAppDir && python3 intake.py >> $wslLog 2>&1"
+# Run intake processor via WSL with env vars pointing to AppData
+$wslCmd = "cd $wslCodeDir && INTAKE_DATA_ROOT=$wslDataRoot INTAKE_ENV_FILE=$wslEnvFile python3 intake.py >> $wslLog 2>&1"
 wsl.exe -e bash -c $wslCmd
